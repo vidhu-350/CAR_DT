@@ -12,12 +12,12 @@ let physicsBodyCount = 0;
 
 // Car state
 const carState = {
-    position: new THREE.Vector3(25, 1.0, 0),
+    position: new THREE.Vector3(25, 0.6, 0),
     rotation: Math.PI / 2,
-    engineForce: 3000, // Reduced engine force
-    brakingForce: 250,
-    maxSteeringAngle: 0.25,
-    steeringSpeed: 4.0,
+    engineForce: 1500,
+    brakingForce: 150,
+    maxSteeringAngle: 0.35,
+    steeringSpeed: 6.0,
     currentSteering: 0,
     wheelRadius: 0.3,
     wheelWidth: 0.2,
@@ -49,7 +49,7 @@ window.removeEventListener('keyup', onKeyUp);
 window.addEventListener('keydown', onKeyDown, { passive:false });
 window.addEventListener('keyup', onKeyUp, { passive:true });
 
-// Wheel references (physics only)
+// Wheel references
 const wheels = {
     frontLeft: null,
     frontRight: null,
@@ -88,7 +88,6 @@ function initScene() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(renderer.domElement);
-    renderer.domElement.focus();
     
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
@@ -150,9 +149,9 @@ function createRealisticRoad() {
     const planeInfo = new Ammo.btRigidBodyConstructionInfo(0, planeMotion, planeShape, new Ammo.btVector3(0, 0, 0));
     const groundBody = new Ammo.btRigidBody(planeInfo);
 
-    groundBody.setFriction(3.0);
-    groundBody.setRestitution(0.05);
-    if (groundBody.setRollingFriction) groundBody.setRollingFriction(0.002);
+    groundBody.setFriction(2.5);
+    groundBody.setRestitution(0.1);
+    if (groundBody.setRollingFriction) groundBody.setRollingFriction(0.005);
 
     physicsWorld.addRigidBody(groundBody);
     physicsBodyCount++;
@@ -207,9 +206,9 @@ function createRealisticRoad() {
     const roadInfo = new Ammo.btRigidBodyConstructionInfo(0, roadMotionState, roadShape, new Ammo.btVector3(0, 0, 0));
     const roadBody = new Ammo.btRigidBody(roadInfo);
 
-    roadBody.setFriction(3.0);
-    roadBody.setRestitution(0.05);
-    if (roadBody.setRollingFriction) roadBody.setRollingFriction(0.004);
+    roadBody.setFriction(2.5);
+    roadBody.setRestitution(0.1);
+    if (roadBody.setRollingFriction) roadBody.setRollingFriction(0.005);
 
     physicsWorld.addRigidBody(roadBody);
     physicsBodyCount++;
@@ -282,7 +281,7 @@ function createObstacles() {
         const humpRbInfo = new Ammo.btRigidBodyConstructionInfo(mass, humpMotionState, humpShape, humpInertia);
         const humpBody = new Ammo.btRigidBody(humpRbInfo);
         humpBody.setFriction(3.0);
-        humpBody.setRestitution(0.05);
+        humpBody.setRestitution(0.1);
         physicsWorld.addRigidBody(humpBody);
         physicsBodyCount++;
         console.log("Hump body added, count:", physicsBodyCount);
@@ -321,7 +320,7 @@ function createObstacles() {
         const treeRbInfo = new Ammo.btRigidBodyConstructionInfo(mass, treeMotionState, treeShape, treeInertia);
         const treeBody = new Ammo.btRigidBody(treeRbInfo);
         treeBody.setFriction(3.0);
-        treeBody.setRestitution(0.05);
+        treeBody.setRestitution(0.1);
         physicsWorld.addRigidBody(treeBody);
         physicsBodyCount++;
         console.log("Tree body added, count:", physicsBodyCount);
@@ -358,21 +357,20 @@ async function initPhysics() {
 
 function settleVehicle() {
   if (!physicsWorld || !vehicle || !carBody) return;
-  const body = vehicle.getRigidBody ? vehicle.getRigidBody() : carBody.body;
+  const body = carBody.body;
   const tr = new Ammo.btTransform();
 
-  // Enforce initial contact with multiple steps
   body.getMotionState().getWorldTransform(tr);
   const o = tr.getOrigin();
   tr.setOrigin(new Ammo.btVector3(o.x(), carState.wheelRadius + carState.groundOffset, o.z()));
   tr.setRotation(new Ammo.btQuaternion(0, Math.sin(carState.rotation / 2), 0, Math.cos(carState.rotation / 2)));
   body.setWorldTransform(tr);
   body.getMotionState().setWorldTransform(tr);
-  body.setLinearVelocity(new Ammo.btVector3(0, -0.2, 0)); // Increased downward force
+  body.setLinearVelocity(new Ammo.btVector3(0, -0.2, 0));
   body.setAngularVelocity(new Ammo.btVector3(0, 0, 0));
   body.activate();
 
-  for (let i = 0; i < 3; i++) { // Multiple steps for better settling
+  for (let i = 0; i < 3; i++) {
     physicsWorld.stepSimulation(1/60, 1);
   }
   let inContact = false;
@@ -385,9 +383,7 @@ function settleVehicle() {
       inContact = true; break;
     }
   }
-  if (inContact) {
-    console.log("Vehicle settled on ground after initial steps");
-  } else {
+  if (!inContact) {
     console.warn("Vehicle settling failed, forcing final position");
     body.getMotionState().getWorldTransform(tr);
     const pos = tr.getOrigin();
@@ -395,6 +391,8 @@ function settleVehicle() {
     body.setWorldTransform(tr);
     body.getMotionState().setWorldTransform(tr);
     body.activate();
+  } else {
+    console.log("Vehicle settled on ground after initial steps");
   }
 }
 
@@ -420,7 +418,8 @@ function setupVehicle(chassisMesh) {
   const motion = new Ammo.btDefaultMotionState(start);
   const rbInfo = new Ammo.btRigidBodyConstructionInfo(mass, motion, chassisShape, inertia);
   const body = new Ammo.btRigidBody(rbInfo);
-  body.setDamping(0.35, 0.45);
+  // Improved damping to prevent flipping
+  body.setDamping(0.15, 0.85);
   body.setRestitution(0.02);
   body.setFriction(3.0);
   body.setActivationState(4);
@@ -428,12 +427,12 @@ function setupVehicle(chassisMesh) {
   physicsWorld.addRigidBody(body);
 
   const tuning = new Ammo.btVehicleTuning();
-  tuning.m_suspensionStiffness = 80.0;
-  tuning.m_suspensionCompression = 5.5;
-  tuning.m_suspensionDamping = 7.5;
-  tuning.m_maxSuspensionTravelCm = 30.0;
-  tuning.m_frictionSlip = 100.0; // Increased for better grip
-  tuning.m_maxSuspensionForce = 35000.0;
+  tuning.m_suspensionStiffness = 35.0;  // Reduced stiffness
+  tuning.m_suspensionCompression = 2.5;  // Reduced compression
+  tuning.m_suspensionDamping = 3.5;     // Increased damping
+  tuning.m_maxSuspensionTravelCm = 30.0;  // Increased travel
+  tuning.m_frictionSlip = 1000.0;       // Much higher friction
+  tuning.m_maxSuspensionForce = 15000.0;
 
   const ray = new Ammo.btDefaultVehicleRaycaster(physicsWorld);
   const veh = new Ammo.btRaycastVehicle(tuning, body, ray);
@@ -442,8 +441,8 @@ function setupVehicle(chassisMesh) {
   physicsWorld.addAction(veh);
 
   const dir = new Ammo.btVector3(0, -1, 0);
-  const axle = new Ammo.btVector3(0, 0, 1);
-  const restLen = 0.2;
+  const axle = new Ammo.btVector3(-1, 0, 0);  // Fixed axle direction
+  const restLen = 0.3;  // Increased rest length
   const radius = carState.wheelRadius;
 
   const cps = [
@@ -462,8 +461,8 @@ function setupVehicle(chassisMesh) {
     wi.m_suspensionStiffness = tuning.m_suspensionStiffness;
     wi.m_wheelsDampingRelaxation = tuning.m_suspensionDamping;
     wi.m_wheelsDampingCompression = tuning.m_suspensionCompression;
-    wi.m_frictionSlip = tuning.m_frictionSlip; // Enhanced wheel friction
-    wi.m_rollInfluence = 0.02;
+    wi.m_frictionSlip = tuning.m_frictionSlip;
+    wi.m_rollInfluence = 0.05;  // Reduced roll influence
   }
 
   veh.__frontIndices = [0, 1];
@@ -523,6 +522,13 @@ function loadCar() {
             child.receiveShadow = true;
             if (child.geometry.type === 'PlaneGeometry' || child.geometry.attributes.position.count < 6) {
               child.visible = false;
+            } else {
+              switch(child.name) {
+                case 'MODEL_1_v1005': wheels.frontLeft = child; break;
+                case 'MODEL_1_v1004': wheels.frontRight = child; break;
+                case 'MODEL_1_v1006': wheels.backLeft = child; break;
+                case 'MODEL_1_v1003': wheels.backRight = child; break;
+              }
             }
           }
         });
@@ -530,12 +536,14 @@ function loadCar() {
         scene.add(root);
         root.updateWorldMatrix(true, true);
 
-        console.warn('Using proxy wheels for physics only');
-        const proxies = ensureProxyWheels(carState.wheelRadius || 0.3, 0.2);
-        wheels.frontLeft = proxies.frontLeft;
-        wheels.frontRight = proxies.frontRight;
-        wheels.backLeft = proxies.backLeft;
-        wheels.backRight = proxies.backRight;
+        if (!wheels.frontLeft || !wheels.frontRight || !wheels.backLeft || !wheels.backRight) {
+          console.warn('Some wheel meshes not found, using proxy wheels');
+          const proxies = ensureProxyWheels(carState.wheelRadius || 0.3, 0.2);
+          wheels.frontLeft = proxies.frontLeft;
+          wheels.frontRight = proxies.frontRight;
+          wheels.backLeft = proxies.backLeft;
+          wheels.backRight = proxies.backRight;
+        }
 
         carState.wheelRadius = 0.3;
         root.userData.wheelRadius = carState.wheelRadius;
@@ -590,132 +598,43 @@ function setupControls() {
   const domElement = el;
   let isDragging = false;
   let lastX = 0;
-  let initialPinchDistance = 0;
-  let initialTheta = cameraState.theta;
-  let initialPhi = cameraState.phi;
+  let lastY = 0;
 
   domElement.addEventListener('mousedown', (e) => {
     isDragging = true;
     lastX = e.clientX;
-    e.preventDefault();
+    lastY = e.clientY;
   });
 
   document.addEventListener('mouseup', () => {
     isDragging = false;
-    keys.ArrowLeft = keys.ArrowRight = false;
   });
 
   domElement.addEventListener('mousemove', (e) => {
     if (!isDragging || !vehicle) return;
+    
     const dx = e.clientX - lastX;
-    if (Math.abs(dx) > 1) {
-      keys.ArrowLeft = dx > 0;
-      keys.ArrowRight = dx < 0;
-    }
+    const dy = e.clientY - lastY;
+    
+    cameraState.theta += dx * cameraState.rotateSpeed;
+    cameraState.phi = THREE.MathUtils.clamp(cameraState.phi - dy * cameraState.rotateSpeed, cameraState.minPhi, cameraState.maxPhi);
+    
     lastX = e.clientX;
+    lastY = e.clientY;
+  });
+
+  window.addEventListener('wheel', (e) => {
     e.preventDefault();
-  });
-
-  domElement.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 1 && vehicle) {
-      isDragging = true;
-      lastX = e.touches[0].clientX;
-    } else if (e.touches.length === 2) {
-      isDragging = false;
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      initialPinchDistance = Math.hypot(dx, dy);
-      initialTheta = cameraState.theta;
-      initialPhi = cameraState.phi;
-    }
-  });
-
-  domElement.addEventListener('touchmove', (e) => {
-    if (e.touches.length === 1 && isDragging && vehicle) {
-      const dx = e.touches[0].clientX - lastX;
-      if (Math.abs(dx) > 1) {
-        keys.ArrowLeft = dx > 0;
-        keys.ArrowRight = dx < 0;
-      }
-      lastX = e.touches[0].clientX;
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const distance = Math.hypot(dx, dy);
-      const scale = distance / initialPinchDistance;
-      cameraState.distance = THREE.MathUtils.clamp(
-        cameraState.distance * scale,
-        cameraState.minDistance,
-        cameraState.maxDistance
-      );
-      const avgX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-      const avgY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-      cameraState.theta = initialTheta - avgX * 0.005;
-      cameraState.phi = THREE.MathUtils.clamp(
-        initialPhi - avgY * 0.001,
-        0.1,
-        Math.PI / 2 - 0.1
-      );
-    }
-  });
-
-  domElement.addEventListener('touchend', () => {
-    isDragging = false;
-    keys.ArrowLeft = keys.ArrowRight = false;
-    initialPinchDistance = 0;
-  });
-
-  renderer.domElement.addEventListener('wheel', handleWheel, { passive: false });
-  renderer.domElement.addEventListener('mousemove', handleMouseMove);
-  renderer.domElement.addEventListener('mousedown', handleMouseDown);
-  renderer.domElement.addEventListener('mouseup', handleMouseUp);
-  renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+    cameraState.distance += e.deltaY * -cameraState.zoomSpeed;
+    cameraState.distance = Math.max(cameraState.minDistance, Math.min(cameraState.maxDistance, cameraState.distance));
+  }, { passive: false });
 
   console.log("Controls initialized");
 }
 
-function handleWheel(e) {
-    e.preventDefault();
-    const delta = e.deltaY * -0.01 * cameraState.zoomSpeed;
-    cameraState.distance = THREE.MathUtils.clamp(
-        cameraState.distance + delta,
-        cameraState.minDistance,
-        cameraState.maxDistance
-    );
-}
-
-function handleMouseDown(e) {
-    if (e.button === 2) {
-        cameraState.isDragging = true;
-        cameraState.lastX = e.clientX;
-        cameraState.lastY = e.clientY;
-    }
-}
-
-function handleMouseUp() {
-    cameraState.isDragging = false;
-}
-
-function handleMouseMove(e) {
-    if (!cameraState.isDragging) return;
-    
-    const dx = e.clientX - cameraState.lastX;
-    const dy = e.clientY - cameraState.lastY;
-    
-    cameraState.theta -= dx * cameraState.rotateSpeed;
-    cameraState.phi = THREE.MathUtils.clamp(
-        cameraState.phi - dy * cameraState.rotateSpeed,
-        cameraState.minPhi,
-        cameraState.maxPhi
-    );
-    
-    cameraState.lastX = e.clientX;
-    cameraState.lastY = e.clientY;
-}
-
 function resetCar() {
     if (carBody) {
-        carState.position.set(25, 1.0, 0);
+        carState.position.set(25, 0.6, 0);
         carState.rotation = Math.PI / 2;
         carState.speed = 0;
         carState.currentSteering = 0;
@@ -736,8 +655,6 @@ function resetCar() {
 function updatePhysics(deltaTime) {
   if (!physicsWorld || !carBody || !vehicle) return;
 
-  const now = performance.now();
-
   carBody.body.activate();
   vehicle.getRigidBody?.().activate();
 
@@ -752,18 +669,22 @@ function updatePhysics(deltaTime) {
 
   let force = 0;
   if (accel) force = carState.engineForce;
-  if (reverse) force = -carState.engineForce * 0.3;
+  if (reverse) force = -carState.engineForce * 0.5;  // Increased reverse power
 
-  console.log("Applied force:", force, "Steering target:", left ? 'left' : right ? 'right' : 'none');
-
-  const rears = vehicle.__rearIndices || [2,3];
+  const rears = vehicle.__rearIndices || [2, 3];
   for (const idx of rears) {
     vehicle.applyEngineForce(force, idx);
   }
 
-  const brakingForce = carState.brakingForce;
+  // Improved braking system
+  let brakingForce = 0;
+  if (!accel && !reverse) {
+    // Apply gradual braking when no input
+    brakingForce = carState.brakingForce * 2;
+  }
+  
   for (let i = 0; i < 4; i++) {
-    vehicle.setBrake((accel || reverse) ? 0 : brakingForce * 0.5, i);
+    vehicle.setBrake(brakingForce, i);
   }
 
   let steerTarget = 0;
@@ -773,22 +694,22 @@ function updatePhysics(deltaTime) {
   carState.currentSteering = THREE.MathUtils.lerp(
     carState.currentSteering,
     steerTarget,
-    Math.min(1, carState.steeringSpeed * deltaTime)
+    Math.min(1, carState.steeringSpeed * deltaTime * 60)
   );
 
-  const fronts = vehicle.__frontIndices || [0,1];
+  const fronts = vehicle.__frontIndices || [0, 1];
   for (const idx of fronts) {
     vehicle.setSteeringValue(carState.currentSteering, idx);
   }
 
   physicsWorld.stepSimulation(deltaTime, maxSubSteps, timeStep);
 
-  updateCarVisuals();
+  updateCarVisuals(deltaTime);
   updateCarStateFromPhysics();
 }
 
-function updateCarVisuals() {
-  if (!carBody || !vehicle) return;
+function updateCarVisuals(deltaTime) {
+  if (!carBody || !vehicle || !carBody.body) return;
 
   const tr = new Ammo.btTransform();
   carBody.body.getMotionState().getWorldTransform(tr);
@@ -797,11 +718,43 @@ function updateCarVisuals() {
   carBody.mesh.position.set(p.x(), p.y(), p.z());
   carBody.mesh.quaternion.set(q.x(), q.y(), q.z(), q.w());
 
-  // Prevent sinking below ground
-  if (p.y() < carState.wheelRadius + carState.groundOffset - 0.1) {
+  // Update wheel rotations based on movement (ORIGINAL METHOD)
+  const velocity = carBody.body.getLinearVelocity();
+  const moveDistance = Math.sqrt(velocity.x() ** 2 + velocity.z() ** 2) * deltaTime;
+  const wheelRotationAmount = moveDistance / (2 * Math.PI * carState.wheelRadius);
+
+  if (wheels.frontLeft) wheels.frontLeft.rotation.z += wheelRotationAmount * 5;
+  if (wheels.frontRight) wheels.frontRight.rotation.z += wheelRotationAmount * 5;
+  if (wheels.backLeft) wheels.backLeft.rotation.z += wheelRotationAmount * 5;
+  if (wheels.backRight) wheels.backRight.rotation.z += wheelRotationAmount * 5;
+
+  // Apply steering to front wheels (ORIGINAL METHOD)
+  if (wheels.frontLeft) wheels.frontLeft.rotation.y = carState.currentSteering;
+  if (wheels.frontRight) wheels.frontRight.rotation.y = carState.currentSteering;
+
+  // Stability check to prevent flipping
+  const angularVel = carBody.body.getAngularVelocity();
+  
+  // If car is moving too fast or rotating too much, apply stabilization
+  if (Math.abs(angularVel.x()) > 2 || Math.abs(angularVel.z()) > 2) {
+    carBody.body.setAngularVelocity(new Ammo.btVector3(
+      angularVel.x() * 0.8,
+      angularVel.y(),
+      angularVel.z() * 0.8
+    ));
+  }
+
+  if (p.y() < carState.wheelRadius + carState.groundOffset - 0.1 || 
+      Math.abs(carBody.mesh.rotation.x) > Math.PI / 2 || 
+      Math.abs(carBody.mesh.rotation.z) > Math.PI / 2) {
     tr.setOrigin(new Ammo.btVector3(p.x(), carState.wheelRadius + carState.groundOffset, p.z()));
-    body.setWorldTransform(tr);
-    body.getMotionState().setWorldTransform(tr);
+    tr.setRotation(new Ammo.btQuaternion(0, Math.sin(carState.rotation / 2), 0, Math.cos(carState.rotation / 2)));
+    carBody.body.setWorldTransform(tr);
+    carBody.body.getMotionState().setWorldTransform(tr);
+    carBody.body.setLinearVelocity(new Ammo.btVector3(0, 0, 0));
+    carBody.body.setAngularVelocity(new Ammo.btVector3(0, 0, 0));
+    carBody.body.activate();
+    console.log("Car stabilized due to sinking or flipping");
   }
 }
 
