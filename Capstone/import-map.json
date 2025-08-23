@@ -1,0 +1,7 @@
+{
+    "imports": {
+      "three": "./js/three.module.js",
+      "three/addons/": "./js/"
+    }
+  }
+  
